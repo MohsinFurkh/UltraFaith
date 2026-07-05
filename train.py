@@ -27,11 +27,22 @@ from models import build_model, compile_model, set_backbone_trainable
 
 
 # --------------------------------------------------------------------------- #
+# Optional geometric augmentation (rotation / zoom / translation) used when
+# config.STRONG_AUG is on -- an effective overfitting curb on small datasets.
+_geo_aug = tf.keras.Sequential([
+    tf.keras.layers.RandomRotation(0.08, fill_mode="reflect"),
+    tf.keras.layers.RandomZoom(0.10, fill_mode="reflect"),
+    tf.keras.layers.RandomTranslation(0.06, 0.06, fill_mode="reflect"),
+], name="geo_aug")
+
+
 def _augment(image, label):
-    """Mild augmentation appropriate for grayscale breast ultrasound."""
+    """Augmentation appropriate for grayscale breast ultrasound."""
     image = tf.image.random_flip_left_right(image)
     image = tf.image.random_brightness(image, max_delta=15.0)     # [0,255] scale
     image = tf.image.random_contrast(image, 0.9, 1.1)
+    if C.STRONG_AUG:
+        image = _geo_aug(image, training=True)
     image = tf.clip_by_value(image, 0.0, 255.0)
     return image, label
 
@@ -99,24 +110,32 @@ def train_one(name, cache, class_weight, head_epochs, ft_epochs,
                    callbacks=_callbacks(monitor, mode, patience), verbose=2)
 
     # ---- phase 2 : fine-tune top of backbone -------------------------------
-    set_backbone_trainable(backbone, trainable=True,
-                           unfreeze_top=C.FINE_TUNE_UNFREEZE)
-    compile_model(model, lr=C.FINE_TUNE_LR, num_classes=num_classes)
-    n_train = sum(int(tf.size(w)) for w in model.trainable_weights)
-    print(f"[{tag}] Phase 2 (fine-tune top {C.FINE_TUNE_UNFREEZE}) - "
-          f"{ft_epochs} epochs | trainable params ~ {n_train:,}")
-    h2 = model.fit(tr_ds, validation_data=va_ds, epochs=ft_epochs,
-                   class_weight=class_weight,
-                   callbacks=_callbacks(monitor, mode, patience), verbose=2)
+    # ft_epochs <= 0 -> head-only training (used when the backbone cannot be
+    # back-propagated in the available VRAM, e.g. ResNet50/EfficientNet at 224
+    # on a 2 GB GPU); the frozen-backbone head is still competitive on fetal.
+    if ft_epochs and ft_epochs > 0:
+        set_backbone_trainable(backbone, trainable=True,
+                               unfreeze_top=C.FINE_TUNE_UNFREEZE)
+        compile_model(model, lr=C.FINE_TUNE_LR, num_classes=num_classes)
+        n_train = sum(int(tf.size(w)) for w in model.trainable_weights)
+        print(f"[{tag}] Phase 2 (fine-tune top {C.FINE_TUNE_UNFREEZE}) - "
+              f"{ft_epochs} epochs | trainable params ~ {n_train:,}")
+        h2 = model.fit(tr_ds, validation_data=va_ds, epochs=ft_epochs,
+                       class_weight=class_weight,
+                       callbacks=_callbacks(monitor, mode, patience), verbose=2)
+    else:
+        print(f"[{tag}] Head-only (backbone frozen; VRAM-limited fine-tune skip)")
+        h2 = type("H", (), {"history": {}})()   # empty history stand-in
+        n_train = sum(int(tf.size(w)) for w in model.trainable_weights)
 
     train_time = time.time() - t0
 
     # ---- persist ------------------------------------------------------------
-    w_path = os.path.join(C.MODELS_DIR, f"{tag}.weights.h5")
+    w_path = C.weights_path(name, weight_suffix)
     model.save_weights(w_path)
 
     history = _merge_history(h1.history, h2.history)
-    with open(os.path.join(C.RESULTS_DIR, f"{tag}_history.json"), "w") as f:
+    with open(os.path.join(C.RESULTS_DIR, f"{C.tagged(tag)}_history.json"), "w") as f:
         json.dump(history, f)
 
     comp = {
@@ -129,7 +148,7 @@ def train_one(name, cache, class_weight, head_epochs, ft_epochs,
         "weights_file": os.path.basename(w_path),
         "weights_size_mb": round(os.path.getsize(w_path) / 1e6, 2),
     }
-    with open(os.path.join(C.RESULTS_DIR, f"{tag}_compute.json"), "w") as f:
+    with open(os.path.join(C.RESULTS_DIR, f"{C.tagged(tag)}_compute.json"), "w") as f:
         json.dump(comp, f, indent=2)
 
     print(f"[{tag}] done in {train_time/60:.1f} min | weights -> {w_path}")

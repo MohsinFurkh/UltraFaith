@@ -75,8 +75,9 @@ def build_model(name, dropout=C.DROPOUT, num_classes=None):
     y = layers.GlobalAveragePooling2D(name="gap")(backbone.output)
     y = layers.Dropout(dropout, name="dropout")(y)
     activation = "sigmoid" if num_classes == 1 else "softmax"
+    reg = tf.keras.regularizers.l2(C.L2_REG) if C.L2_REG > 0 else None
     outputs = layers.Dense(num_classes, activation=activation,
-                           name="predictions")(y)
+                           kernel_regularizer=reg, name="predictions")(y)
 
     model = Model(inputs, outputs, name=name)
     last_conv = _last_conv_layer_name(model)
@@ -90,14 +91,16 @@ def compile_model(model, lr, num_classes=1, weight_decay=1e-5):
     except TypeError:
         opt = Adam(learning_rate=lr)
     if num_classes == 1:
-        model.compile(optimizer=opt, loss="binary_crossentropy",
+        loss = tf.keras.losses.BinaryCrossentropy(
+            label_smoothing=C.LABEL_SMOOTHING)
+        model.compile(optimizer=opt, loss=loss,
                       metrics=["accuracy",
                                tf.keras.metrics.AUC(name="auc"),
                                tf.keras.metrics.Precision(name="precision"),
                                tf.keras.metrics.Recall(name="recall")])
     else:
-        model.compile(optimizer=opt, loss="sparse_categorical_crossentropy",
-                      metrics=["accuracy"])
+        loss = tf.keras.losses.SparseCategoricalCrossentropy()
+        model.compile(optimizer=opt, loss=loss, metrics=["accuracy"])
     return model
 
 

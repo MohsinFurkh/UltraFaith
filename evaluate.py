@@ -42,7 +42,7 @@ _PALETTE = {"EfficientNetB4": "#1f77b4", "MobileNetV2": "#ff7f0e",
 # --------------------------------------------------------------------------- #
 def load_trained_model(name):
     model, _, last_conv = build_model(name)
-    model.load_weights(os.path.join(C.MODELS_DIR, f"{name}.weights.h5"))
+    model.load_weights(C.weights_path(name))
     return model, last_conv
 
 
@@ -74,7 +74,7 @@ def evaluate_all():
     rows, roc_data, pr_data, cms, preds_store = [], {}, {}, {}, {}
 
     for name in C.MODEL_NAMES:
-        wpath = os.path.join(C.MODELS_DIR, f"{name}.weights.h5")
+        wpath = C.weights_path(name)
         if not os.path.exists(wpath):
             print(f"[evaluate] skipping {name} (no trained weights)")
             continue
@@ -90,7 +90,7 @@ def evaluate_all():
         latency_ms, throughput = _measure_latency(model, X_test)
 
         # computational info saved during training (if present)
-        comp_path = os.path.join(C.RESULTS_DIR, f"{name}_compute.json")
+        comp_path = os.path.join(C.RESULTS_DIR, f"{C.tagged(name)}_compute.json")
         comp = json.load(open(comp_path)) if os.path.exists(comp_path) else {}
 
         rows.append({
@@ -229,7 +229,7 @@ def _plot_computational(df):
 
 
 def _plot_history_curves():
-    files = {n: os.path.join(C.RESULTS_DIR, f"{n}_history.json")
+    files = {n: os.path.join(C.RESULTS_DIR, f"{C.tagged(n)}_history.json")
              for n in C.MODEL_NAMES}
     files = {n: p for n, p in files.items() if os.path.exists(p)}
     if not files:

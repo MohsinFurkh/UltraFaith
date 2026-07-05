@@ -27,25 +27,45 @@ FETAL_DIR = os.environ.get(
 FETAL_IMAGES_DIR = os.path.join(FETAL_DIR, "Images")
 FETAL_CSV_PATH = os.path.join(FETAL_DIR, "FETAL_PLANES_DB_data.csv")
 
+# --------------------------------------------------------------------------- #
+# Image size and experiment tag (env-overridable so a higher-resolution /
+# stronger-regularisation run can coexist with the 128x128 baseline).
+#   UF_IMG_SIZE : input side length (default 128)
+#   UF_TAG      : suffix appended to caches, weights and result files, e.g.
+#                 "_224" keeps a 224x224 run's artefacts separate from 128.
+# --------------------------------------------------------------------------- #
+IMG_SIZE = int(os.environ.get("UF_IMG_SIZE", "128"))
+RUN_TAG = os.environ.get("UF_TAG", "")
+
 # All generated artefacts live here
 OUTPUT_DIR = os.path.join(PROJECT_DIR, "outputs")
 MODELS_DIR = os.path.join(OUTPUT_DIR, "models")
 PLOTS_DIR = os.path.join(OUTPUT_DIR, "plots")
 RESULTS_DIR = os.path.join(OUTPUT_DIR, "results")
 SALIENCY_DIR = os.path.join(OUTPUT_DIR, "saliency")
-DATA_CACHE = os.path.join(OUTPUT_DIR, "dataset_128x128x1.npz")
-FETAL_CACHE = os.path.join(OUTPUT_DIR, "fetal_128x128x1.npz")
+DATA_CACHE = os.path.join(OUTPUT_DIR, f"dataset_{IMG_SIZE}x{IMG_SIZE}x1{RUN_TAG}.npz")
+FETAL_CACHE = os.path.join(OUTPUT_DIR, f"fetal_{IMG_SIZE}x{IMG_SIZE}x1{RUN_TAG}.npz")
 # UltraFaith benchmark artefacts
 FAITH_DIR = os.path.join(OUTPUT_DIR, "faithfulness")
 
 for _d in (OUTPUT_DIR, MODELS_DIR, PLOTS_DIR, RESULTS_DIR, SALIENCY_DIR, FAITH_DIR):
     os.makedirs(_d, exist_ok=True)
 
+
+def weights_path(name, weight_suffix=""):
+    """Checkpoint path, including the run tag so experiments stay separate."""
+    return os.path.join(MODELS_DIR, f"{name}{weight_suffix}{RUN_TAG}.weights.h5")
+
+
+def tagged(name):
+    """Append the run tag to a result-file stem."""
+    return f"{name}{RUN_TAG}"
+
+
 # --------------------------------------------------------------------------- #
 # Data / image settings
 # --------------------------------------------------------------------------- #
-IMG_SIZE = 128            # height = width
-CHANNELS = 1              # grayscale input (128 x 128 x 1)
+CHANNELS = 1              # grayscale input (IMG_SIZE x IMG_SIZE x 1)
 NUM_CLASSES = 1           # single sigmoid unit (binary)
 CLASS_NAMES = ["benign", "malignant"]
 LABEL_COLUMN = "Pathology"          # values: benign / malignant
@@ -60,22 +80,35 @@ VAL_FRACTION = 0.15       # fraction of the *whole* dataset
 # Training hyper-parameters
 # --------------------------------------------------------------------------- #
 SEED = 42
-BATCH_SIZE = 16
+BATCH_SIZE = int(os.environ.get("UF_BATCH", "16"))
 # Per-model batch overrides for a small GPU (GTX 1650, ~4 GB).  Larger
 # backbones use a smaller batch during fine-tuning to avoid out-of-memory.
 BATCH_OVERRIDE = {"EfficientNetB4": 8, "ResNet50": 8}
 
 
 def batch_for(name):
-    return BATCH_OVERRIDE.get(name, BATCH_SIZE)
+    b = BATCH_OVERRIDE.get(name, BATCH_SIZE)
+    if IMG_SIZE >= 224:            # ~3x the per-image memory on a small GPU
+        # the heavy backbones need a very small batch to fit in ~2 GB VRAM;
+        # on a large-VRAM GPU (e.g. Kaggle T4/P100) set UF_BIG_BATCH224=16.
+        big = int(os.environ.get("UF_BIG_BATCH224", "2"))
+        b = big if name in BATCH_OVERRIDE else max(4, b // 2)
+    return b
+
+
 HEAD_EPOCHS = 8           # phase 1 : frozen backbone, train new head
 FINE_TUNE_EPOCHS = 30     # phase 2 : unfreeze top of backbone
 HEAD_LR = 1e-3
 FINE_TUNE_LR = 1e-5
 EARLY_STOP_PATIENCE = 8
 REDUCE_LR_PATIENCE = 4
-FINE_TUNE_UNFREEZE = 60   # number of top backbone layers to unfreeze in phase 2
-DROPOUT = 0.3
+FINE_TUNE_UNFREEZE = int(os.environ.get("UF_UNFREEZE", "60"))
+
+# ---- Regularisation (env-overridable; defaults reproduce the 128 baseline) --
+DROPOUT = float(os.environ.get("UF_DROPOUT", "0.3"))
+L2_REG = float(os.environ.get("UF_L2", "0.0"))              # head weight decay
+LABEL_SMOOTHING = float(os.environ.get("UF_LABEL_SMOOTH", "0.0"))
+STRONG_AUG = os.environ.get("UF_STRONG_AUG", "0") == "1"    # rotation/zoom/shift
 
 # Fetal fine-tuning is capped tighter (12,400 images, small GPU): the classifier
 # only needs to be competitive so faithfulness is not confounded (paper Sec 5).

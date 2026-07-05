@@ -59,7 +59,7 @@ def classification_table():
                  else D.build_or_load_fetal_cache())
         Xte, yte = cache["X_test"], cache["y_test"].astype(int)
         for bb in C.MODEL_NAMES:
-            wp = os.path.join(C.MODELS_DIR, f"{bb}{spec['weight_suffix']}.weights.h5")
+            wp = C.weights_path(bb, spec["weight_suffix"])
             if not os.path.exists(wp):
                 continue
             import tensorflow as tf

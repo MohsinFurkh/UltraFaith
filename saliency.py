@@ -120,7 +120,7 @@ def run_for_model(name, cache, sample_idx, gradcam_store):
     print(f"[saliency] {name} ...")
     tf.keras.backend.clear_session()
     model, _, last_conv = build_model(name)
-    model.load_weights(os.path.join(C.MODELS_DIR, f"{name}.weights.h5"))
+    model.load_weights(C.weights_path(name))
 
     X_test, y_test = cache["X_test"], cache["y_test"].astype(int)
     samples = X_test[sample_idx]
@@ -245,7 +245,7 @@ def main(models=None, do_cross=True):
     names = models if models else C.MODEL_NAMES
     gradcam_store = {}
     for name in names:
-        if not os.path.exists(os.path.join(C.MODELS_DIR, f"{name}.weights.h5")):
+        if not os.path.exists(C.weights_path(name)):
             print(f"[saliency] skipping {name} (no weights)")
             continue
         run_for_model(name, cache, sample_idx, gradcam_store)

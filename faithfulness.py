@@ -206,7 +206,7 @@ def run_config(modality, backbone, n_images=C.N_FAITH_IMAGES):
     spec = C.MODALITIES[modality]
     nc = spec["num_classes"]
     tag = backbone + spec["weight_suffix"]
-    wpath = os.path.join(C.MODELS_DIR, f"{tag}.weights.h5")
+    wpath = C.weights_path(backbone, spec["weight_suffix"])
     if not os.path.exists(wpath):
         print(f"[faith] missing weights for {tag}; skip")
         return
