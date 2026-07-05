@@ -14,18 +14,22 @@ sweep → tables/figures) and produces one downloadable results bundle.
 
 ---
 
-### Cell 1 — clone + install (legacy Keras 2 so weights load anywhere)
+### Cell 1 — clone + pin TensorFlow 2.15 (which *is* Keras 2)
+Kaggle now ships TF 2.16+/Keras 3, which (a) saves weights in a format the local
+TF 2.8 cannot read and (b) breaks `shap`/`tf-keras-vis`. Pinning TF 2.15 avoids
+both. Training/eval run in `!python` sub-processes, so they pick up the pinned
+TF automatically — **no kernel restart needed**.
 ```python
 %cd /kaggle/working
 !rm -rf UltraFaith && git clone -q https://github.com/MohsinFurkh/UltraFaith.git
 %cd UltraFaith
-!pip install -q tf-keras "tf-keras-vis==0.8.5" shap tabulate
+!pip install -q "tensorflow==2.15.*" "tf-keras-vis==0.8.5" shap tabulate
+!python -c "import tensorflow as tf; print('subprocess TF', tf.__version__)"   # must print 2.15.x
 ```
 
 ### Cell 2 — point at the datasets + shared env
 ```python
 import os
-os.environ['TF_USE_LEGACY_KERAS'] = '1'          # force Keras 2 under TF 2.16+
 # EDIT these two to match your Add-Input paths (use the folder holding Images/):
 os.environ['BUSBRA_DIR'] = '/kaggle/input/bus-bra/BUS-BRA'
 os.environ['FETAL_DIR']  = '/kaggle/input/fetal-planes-db/Fetal US Dataset'
@@ -71,10 +75,12 @@ Unzip it into the local project's `outputs/` (merging the folders). The tables +
 figures are then plugged straight into the papers.
 
 ### Notes
-- Every subprocess inherits the env from Cell 2, so `UF_IMG_SIZE=224`,
-  `TF_USE_LEGACY_KERAS=1`, etc. apply throughout — including the faithfulness
-  sub-processes launched by `run_ultrafaith.py`.
-- If `shap`/`tf-keras-vis` throw a Keras-3 error, confirm `TF_USE_LEGACY_KERAS=1`
-  is set *before* any TensorFlow import (it is, in Cell 2), and that `tf-keras`
-  installed cleanly. Fallback: `!pip install "tensorflow==2.15.*"` then restart.
+- **Use TF 2.15, not the default Kaggle TF.** With TF 2.16/Keras 3 the checkpoints
+  save in a format the local TF 2.8 cannot load and `shap`/`tf-keras-vis` fail —
+  both symptoms seen on the first run. Cell 1's `tensorflow==2.15.*` fixes both.
+- The `!python -c "...print TF..."` check in Cell 1 must show **2.15.x**. If it
+  shows 2.16/2.17, the pin didn't take: run *Restart & Run All* once.
+- Every `!python` sub-process inherits the env from Cell 2, so `UF_IMG_SIZE=224`
+  etc. apply throughout — including the faithfulness sub-processes launched by
+  `run_ultrafaith.py`.
 - Runtime: roughly 1–2 h total on a single T4 (training dominates).
