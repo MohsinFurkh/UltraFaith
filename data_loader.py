@@ -89,18 +89,36 @@ def _patient_level_split(y, groups):
     return train_idx, val_idx, test_idx
 
 
+# Frozen BUS-BRA split (image-id -> fold) for cross-machine reproducibility.
+BUSBRA_SPLIT_JSON = os.path.join(C.PROJECT_DIR, "busbra_split.json")
+
+
 def build_or_load_cache(force=False):
     """
     Return a dict with X_train/val/test, y_train/val/test and the raw ids.
     Cached to config.DATA_CACHE so all stages share the identical split.
+    Uses busbra_split.json when present (reproducible across machines).
     """
     if os.path.exists(C.DATA_CACHE) and not force:
         d = np.load(C.DATA_CACHE, allow_pickle=True)
         return {k: d[k] for k in d.files}
 
+    import json
     print("[data_loader] Building dataset cache ...")
     X, y, groups, ids = _load_raw()
-    tr, va, te = _patient_level_split(y, groups)
+
+    if os.path.exists(BUSBRA_SPLIT_JSON):
+        split = json.load(open(BUSBRA_SPLIT_JSON))
+        id_to_i = {n: i for i, n in enumerate(ids)}
+        tr = np.array([id_to_i[n] for n in split["train"] if n in id_to_i])
+        va = np.array([id_to_i[n] for n in split["val"] if n in id_to_i])
+        te = np.array([id_to_i[n] for n in split["test"] if n in id_to_i])
+        print(f"[data_loader] using frozen split from {os.path.basename(BUSBRA_SPLIT_JSON)}")
+    else:
+        tr, va, te = _patient_level_split(y, groups)
+        json.dump({"train": ids[tr].tolist(), "val": ids[va].tolist(),
+                   "test": ids[te].tolist()}, open(BUSBRA_SPLIT_JSON, "w"))
+        print(f"[data_loader] wrote frozen split -> {os.path.basename(BUSBRA_SPLIT_JSON)}")
 
     cache = dict(
         X_train=X[tr], y_train=y[tr], ids_train=ids[tr],
