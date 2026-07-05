@@ -24,7 +24,9 @@ force `tf.keras` to be **Keras 2**, fixing both. The verify line **must print
 !rm -rf UltraFaith && git clone -q https://github.com/MohsinFurkh/UltraFaith.git
 %cd UltraFaith
 !pip install -q tf-keras "tf-keras-vis==0.8.5" shap tabulate
-!TF_USE_LEGACY_KERAS=1 python -c "import tensorflow as tf; print('TF',tf.__version__,'| tf.keras',tf.keras.__version__)"
+# must print a module path containing 'tf_keras' (= Keras 2 active), e.g.
+#   TF 2.17.0 | backend tf_keras.api._v2.keras
+!TF_USE_LEGACY_KERAS=1 python -c "import tensorflow as tf; print('TF',tf.__version__,'| backend',tf.keras.__name__)"
 ```
 
 ### Cell 2 — point at the datasets + shared env
