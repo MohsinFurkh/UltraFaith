@@ -14,17 +14,17 @@ sweep → tables/figures) and produces one downloadable results bundle.
 
 ---
 
-### Cell 1 — clone + pin TensorFlow 2.15 (which *is* Keras 2)
-Kaggle now ships TF 2.16+/Keras 3, which (a) saves weights in a format the local
-TF 2.8 cannot read and (b) breaks `shap`/`tf-keras-vis`. Pinning TF 2.15 avoids
-both. Training/eval run in `!python` sub-processes, so they pick up the pinned
-TF automatically — **no kernel restart needed**.
+### Cell 1 — clone + install legacy Keras 2 (Kaggle only offers TF 2.16+)
+Kaggle's default TF 2.16+/Keras 3 (a) saves weights the local TF 2.8 can't read
+and (b) breaks `shap`/`tf-keras-vis`. The `tf-keras` package + `TF_USE_LEGACY_KERAS=1`
+force `tf.keras` to be **Keras 2**, fixing both. The verify line **must print
+`tf.keras 2.x`** — if it prints `3.x`, stop and re-run this cell.
 ```python
 %cd /kaggle/working
 !rm -rf UltraFaith && git clone -q https://github.com/MohsinFurkh/UltraFaith.git
 %cd UltraFaith
-!pip install -q "tensorflow==2.15.*" "tf-keras-vis==0.8.5" shap tabulate
-!python -c "import tensorflow as tf; print('subprocess TF', tf.__version__)"   # must print 2.15.x
+!pip install -q tf-keras "tf-keras-vis==0.8.5" shap tabulate
+!TF_USE_LEGACY_KERAS=1 python -c "import tensorflow as tf; print('TF',tf.__version__,'| tf.keras',tf.keras.__version__)"
 ```
 
 ### Cell 2 — point at the datasets + shared env
@@ -40,20 +40,22 @@ os.environ['UF_STRONG_AUG'] = '1'
 os.environ['UF_BIG_BATCH224'] = '16'             # large-VRAM batch
 !ls "$BUSBRA_DIR" && echo '---' && ls "$FETAL_DIR"
 ```
+**Every training/eval command below is prefixed with `TF_USE_LEGACY_KERAS=1`** so
+the Keras-2 backend is guaranteed in each sub-process (and the ones it spawns).
 
 ### Cell 3 — train the 4 breast models @224
 ```python
-!UF_DROPOUT=0.4 UF_LABEL_SMOOTH=0.05 UF_UNFREEZE=60 python train.py --modality BUS-BRA
+!TF_USE_LEGACY_KERAS=1 UF_DROPOUT=0.4 UF_LABEL_SMOOTH=0.05 UF_UNFREEZE=60 python train.py --modality BUS-BRA
 ```
 
 ### Cell 4 — train the 4 fetal models @224
 ```python
-!UF_DROPOUT=0.3 UF_UNFREEZE=40 python train.py --modality FETAL
+!TF_USE_LEGACY_KERAS=1 UF_DROPOUT=0.3 UF_UNFREEZE=40 python train.py --modality FETAL
 ```
 
 ### Cell 5 — faithfulness sweep (8 configs) + benchmark tables/figures
 ```python
-!python run_ultrafaith.py --skip-fetal   # fetal already trained; runs sweep + aggregate
+!TF_USE_LEGACY_KERAS=1 python run_ultrafaith.py --skip-fetal   # sweep + aggregate (children inherit the flag)
 ```
 
 ### Cell 6 — bundle results for download
@@ -75,12 +77,13 @@ Unzip it into the local project's `outputs/` (merging the folders). The tables +
 figures are then plugged straight into the papers.
 
 ### Notes
-- **Use TF 2.15, not the default Kaggle TF.** With TF 2.16/Keras 3 the checkpoints
-  save in a format the local TF 2.8 cannot load and `shap`/`tf-keras-vis` fail —
-  both symptoms seen on the first run. Cell 1's `tensorflow==2.15.*` fixes both.
-- The `!python -c "...print TF..."` check in Cell 1 must show **2.15.x**. If it
-  shows 2.16/2.17, the pin didn't take: run *Restart & Run All* once.
-- Every `!python` sub-process inherits the env from Cell 2, so `UF_IMG_SIZE=224`
-  etc. apply throughout — including the faithfulness sub-processes launched by
-  `run_ultrafaith.py`.
+- **The Cell 1 verify line must print `tf.keras 2.x`.** If it prints `3.x`, the
+  legacy backend isn't active — the checkpoints would again save in a format the
+  local TF 2.8 can't read and `shap`/`tf-keras-vis` would fail. Do not proceed
+  until it shows 2.x (re-running Cell 1 usually fixes it).
+- `TF_USE_LEGACY_KERAS=1` is prefixed on every command on purpose: an inline
+  prefix guarantees the flag is in the sub-process environment *before* TensorFlow
+  is imported, which `os.environ` set mid-notebook does not reliably achieve.
+- `run_ultrafaith.py` launches the faithfulness configs as child processes; they
+  inherit the flag from their parent, so the whole sweep stays on Keras 2.
 - Runtime: roughly 1–2 h total on a single T4 (training dominates).
