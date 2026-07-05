@@ -148,45 +148,69 @@ def _load_fetal_raw():
     df.columns = [c.strip() for c in df.columns]
     cls_to_idx = {c: i for i, c in enumerate(FETAL_CLASSES)}
 
-    X, y, groups = [], [], []
+    X, y, groups, names = [], [], [], []
     missing = 0
     for _, row in tqdm(df.iterrows(), total=len(df), desc="Reading fetal images"):
         name = str(row[FETAL_LABEL_COLUMN])
         if name not in cls_to_idx:
             continue
-        path = os.path.join(C.FETAL_IMAGES_DIR, str(row["Image_name"]) + ".png")
+        img_name = str(row["Image_name"])
+        path = os.path.join(C.FETAL_IMAGES_DIR, img_name + ".png")
         if not os.path.exists(path):
             missing += 1
             continue
         X.append(_read_image(path))
         y.append(cls_to_idx[name])
         groups.append(int(row[FETAL_GROUP_COLUMN]))
+        names.append(img_name)
     if missing:
         print(f"[data_loader] WARNING: {missing} fetal image files not found.")
     return (np.stack(X).astype(np.float32),
             np.asarray(y, dtype=np.int32),
-            np.asarray(groups, dtype=np.int32))
+            np.asarray(groups, dtype=np.int32),
+            np.asarray(names))
+
+
+# A frozen split (image-name -> fold) makes the train/val/test partition
+# reproducible across machines and scikit-learn versions -- essential when the
+# models are trained elsewhere (e.g. on Kaggle) but evaluated here.
+FETAL_SPLIT_JSON = os.path.join(C.PROJECT_DIR, "fetal_split.json")
 
 
 def build_or_load_fetal_cache(force=False):
-    """Patient-level stratified 70/15/15 split for FETAL_PLANES_DB (6 classes)."""
+    """Patient-level, class-stratified split for FETAL_PLANES_DB (6 classes)."""
     if os.path.exists(C.FETAL_CACHE) and not force:
         d = np.load(C.FETAL_CACHE, allow_pickle=True)
         return {k: d[k] for k in d.files}
 
+    import json
     print("[data_loader] Building FETAL cache ...")
-    X, y, groups = _load_fetal_raw()
-    tr, va, te = _patient_level_split(y, groups)     # reuse the grouped splitter
+    X, y, groups, names = _load_fetal_raw()
+
+    if os.path.exists(FETAL_SPLIT_JSON):
+        # reproduce a previously frozen split by image name
+        split = json.load(open(FETAL_SPLIT_JSON))
+        name_to_i = {n: i for i, n in enumerate(names)}
+        tr = np.array([name_to_i[n] for n in split["train"] if n in name_to_i])
+        va = np.array([name_to_i[n] for n in split["val"] if n in name_to_i])
+        te = np.array([name_to_i[n] for n in split["test"] if n in name_to_i])
+        print(f"[data_loader] using frozen split from {os.path.basename(FETAL_SPLIT_JSON)}")
+    else:
+        tr, va, te = _patient_level_split(y, groups)
+        json.dump({"train": names[tr].tolist(), "val": names[va].tolist(),
+                   "test": names[te].tolist()}, open(FETAL_SPLIT_JSON, "w"))
+        print(f"[data_loader] wrote frozen split -> {os.path.basename(FETAL_SPLIT_JSON)}")
+
     cache = dict(
-        X_train=X[tr], y_train=y[tr],
-        X_val=X[va],   y_val=y[va],
-        X_test=X[te],  y_test=y[te],
+        X_train=X[tr], y_train=y[tr], ids_train=names[tr],
+        X_val=X[va],   y_val=y[va],   ids_val=names[va],
+        X_test=X[te],  y_test=y[te],  ids_test=names[te],
     )
     np.savez_compressed(C.FETAL_CACHE, **cache)
-    for split in ("train", "val", "test"):
-        yy = cache["y_" + split]
+    for split_name in ("train", "val", "test"):
+        yy = cache["y_" + split_name]
         counts = {FETAL_CLASSES[c]: int((yy == c).sum()) for c in range(6)}
-        print(f"  {split:5s}: n={len(yy)}  {counts}")
+        print(f"  {split_name:5s}: n={len(yy)}  {counts}")
     return cache
 
 
