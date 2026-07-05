@@ -41,7 +41,14 @@ _BACKBONES = {
 def _last_conv_layer_name(model):
     """Name of the last 4-D (conv/activation) layer -> used by Grad/Score-CAM."""
     for layer in reversed(model.layers):
-        if len(layer.output_shape) == 4:
+        try:                              # Keras 2
+            shape = layer.output_shape
+        except AttributeError:            # Keras 3
+            try:
+                shape = tuple(layer.output.shape)
+            except Exception:
+                continue
+        if len(shape) == 4:
             return layer.name
     raise ValueError("No 4-D layer found for CAM.")
 
