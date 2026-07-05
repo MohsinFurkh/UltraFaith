@@ -1,0 +1,4 @@
+Quantity,Value
+Kendall tau of F rank (BUS-BRA vs FETAL),0.667
+Pearson r: F vs localisation rho (BUS-BRA),0.07
+"Mean localisation rho, best-F method (Grad-CAM)",0.121

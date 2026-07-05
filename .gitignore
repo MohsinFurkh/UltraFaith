@@ -1,0 +1,38 @@
+# Generated artefacts (regenerable — not versioned)
+outputs/
+*.h5
+*.hdf5
+*.ckpt
+*.npz
+*.log
+
+# Large media / checkpoints (regenerate or fetch separately)
+outputs/models/
+outputs/plots/
+outputs/saliency/
+outputs/faithfulness/*.npz
+
+# Datasets (never commit raw data)
+BUS-BRA/
+Fetal US Dataset/
+FETAL_PLANES_DB/
+*.png
+*.jpg
+*.jpeg
+# ...but DO keep any figures we deliberately add under results/figures/
+!results/figures/*.png
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.ipynb_checkpoints/
+.venv/
+venv/
+env/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
