@@ -24,6 +24,7 @@ Run:  python faithfulness.py <MODALITY> <BACKBONE>
       e.g. python faithfulness.py BUS-BRA EfficientNetB4
 """
 import os
+os.environ.setdefault("TF_USE_LEGACY_KERAS", "1")   # Keras 2 before shap/TF import
 import sys
 # shap pulls torch; must precede TensorFlow on Windows (WinError 127).
 import shap

@@ -7,6 +7,12 @@ Models: EfficientNetB4, MobileNetV2, ResNet50, DenseNet121
 """
 import os
 
+# Force the legacy Keras-2 backend BEFORE TensorFlow is imported anywhere.  On
+# Kaggle (TF 2.16+/Keras 3) this makes `tf.keras` route to the `tf-keras`
+# package, so checkpoints save in the classic HDF5 format that the local TF 2.8
+# can load, and shap / tf-keras-vis keep working.  Harmless on TF 2.8 (ignored).
+os.environ.setdefault("TF_USE_LEGACY_KERAS", "1")
+
 # --------------------------------------------------------------------------- #
 # Paths
 # --------------------------------------------------------------------------- #

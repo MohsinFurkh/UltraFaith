@@ -13,6 +13,7 @@ Produces (every figure saved at 300 dpi):
 Run:  python evaluate.py
 """
 import os
+os.environ.setdefault("TF_USE_LEGACY_KERAS", "1")   # Keras 2 before TF import
 import json
 import time
 import numpy as np

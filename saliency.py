@@ -24,6 +24,7 @@ import os
 # (Must be set before TensorFlow is imported.)
 os.environ.setdefault("CUDA_VISIBLE_DEVICES", "-1")
 os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "2")
+os.environ.setdefault("TF_USE_LEGACY_KERAS", "1")   # Keras 2 before shap/TF import
 
 # NOTE: shap pulls in torch; on Windows torch's DLLs must be loaded BEFORE
 # TensorFlow or the load order clashes (WinError 127).  Import shap first.

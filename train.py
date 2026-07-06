@@ -13,6 +13,7 @@ Run:  python train.py                 # trains every model in config.MODEL_NAMES
       python train.py --epochs 2      # quick smoke test (overrides both phases)
 """
 import os
+os.environ.setdefault("TF_USE_LEGACY_KERAS", "1")   # Keras 2 before TF import
 import sys
 import json
 import time
