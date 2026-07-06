@@ -247,7 +247,8 @@ def run_config(modality, backbone, n_images=C.N_FAITH_IMAGES):
 
     tf.keras.backend.clear_session()
     model, _, last_conv = build_model(backbone, num_classes=nc)
-    model.load_weights(wpath)
+    from load_keras3 import load_weights_any
+    load_weights_any(model, wpath)          # classic HDF5 or Keras-3 layout
     bs = C.batch_for(backbone)
 
     # choose a stratified sample of test images
