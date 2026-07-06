@@ -166,7 +166,11 @@ class Explainers:
             ("Score-CAM", lambda: self.scorecam_map(x, pred_class, batch_size)),
         ]:
             try:
-                maps[name] = fn()
+                mm = np.asarray(fn(), dtype=np.float32)
+                mm = np.squeeze(mm)                 # (H,W,1)/(1,H,W) -> (H,W)
+                while mm.ndim > 2:
+                    mm = mm.mean(axis=-1)
+                maps[name] = mm
             except Exception as e:
                 print(f"    map {name} failed: {str(e)[:70]}")
                 maps[name] = np.zeros((C.IMG_SIZE, C.IMG_SIZE), np.float32)
@@ -183,6 +187,9 @@ def deletion_insertion(model, x, b, S, pred_class, steps=C.FAITH_STEPS,
     baseline b, and return the t-grid and confidence trajectories D(t), I(t)
     for the fixed predicted class.
     """
+    S = np.squeeze(np.asarray(S, dtype=np.float32))
+    while S.ndim > 2:
+        S = S.mean(axis=-1)
     H, W = S.shape
     order = np.argsort(S.ravel())[::-1]          # most-salient first
     total = H * W
