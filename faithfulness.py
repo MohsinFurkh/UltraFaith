@@ -34,13 +34,13 @@ import cv2
 import config as C
 C.enable_gpu_memory_growth()
 import tensorflow as tf
+from tensorflow.keras import Model
 import data_loader as D
 from models import build_model
 
-from tf_keras_vis.gradcam import Gradcam
-from tf_keras_vis.scorecam import Scorecam
-from tf_keras_vis.utils.model_modifiers import ReplaceToLinear
-from tf_keras_vis.utils.scores import BinaryScore, CategoricalScore
+# Grad-CAM and Score-CAM are implemented manually below (tf.GradientTape /
+# forward passes) so we avoid the tf-keras-vis dependency, which is incompatible
+# with Keras 3 (as shipped on Kaggle).
 
 
 # --------------------------------------------------------------------------- #
@@ -77,39 +77,53 @@ class Explainers:
         self.model = model
         self.last_conv = last_conv
         self.binary = model.output_shape[-1] == 1
-        # Share ONE linear-output clone for both CAM methods.  tf-keras-vis would
-        # otherwise clone the model twice (3x memory), which OOMs large backbones
-        # at 224 on a small GPU.  The original `model` keeps its sigmoid/softmax.
-        lin = tf.keras.models.clone_model(model)
-        lin.set_weights(model.get_weights())
-        lin.layers[-1].activation = tf.keras.activations.linear
-        self.gradcam = Gradcam(lin, model_modifier=None, clone=False)
-        self.scorecam = Scorecam(lin, model_modifier=None, clone=False)
+        # feature-map extractor (shared by Grad-CAM and Score-CAM) and a combined
+        # (features, prediction) model for the Grad-CAM gradient.
+        conv = model.get_layer(last_conv).output
+        self.feat_model = Model(model.inputs, conv)
+        self.grad_model = Model(model.inputs, [conv, model.output])
         self.shap = shap.GradientExplainer(model, background)
 
-    def _score(self, pred_class):
+    def _class_score(self, preds, pred_class):
+        """Scalar score for the predicted class (both binary & multiclass)."""
         if self.binary:
-            return BinaryScore(bool(pred_class))
-        return CategoricalScore(int(pred_class))
+            return preds[:, 0] if pred_class == 1 else 1.0 - preds[:, 0]
+        return preds[:, int(pred_class)]
 
     def gradcam_map(self, x, pred_class):
-        return _norm(self.gradcam(self._score(pred_class), x[None],
-                                  penultimate_layer=self.last_conv)[0])
+        xt = tf.convert_to_tensor(x[None].astype("float32"))
+        with tf.GradientTape() as tape:
+            conv_out, preds = self.grad_model(xt, training=False)
+            score = self._class_score(preds, pred_class)
+        grads = tape.gradient(score, conv_out)                 # (1,h,w,C)
+        weights = tf.reduce_mean(grads, axis=(1, 2))           # (1,C)
+        cam = tf.reduce_sum(conv_out * weights[:, None, None, :], axis=-1)[0]
+        cam = tf.nn.relu(cam).numpy()
+        cam = cv2.resize(cam, (C.IMG_SIZE, C.IMG_SIZE))
+        return _norm(cam)
 
-    def scorecam_map(self, x, pred_class, batch_size):
-        # A single fixed max_N (no fallback loop) avoids repeated tf.function
-        # retracing, which is pathologically slow at 224.  Use a small max_N at
-        # high resolution to bound memory and forward passes.
-        cand = (16,) if C.IMG_SIZE >= 224 else (C.SCORECAM_MAX_N, 32, 16)
-        for mN in cand:
-            try:
-                m = self.scorecam(self._score(pred_class), x[None],
-                                  penultimate_layer=self.last_conv,
-                                  max_N=mN, batch_size=batch_size)[0]
-                return _norm(m)
-            except (ValueError, tf.errors.ResourceExhaustedError):
-                continue
-        return np.zeros((C.IMG_SIZE, C.IMG_SIZE), np.float32)
+    def scorecam_map(self, x, pred_class, batch_size, max_N=None):
+        """Gradient-free Score-CAM: weight activation maps by the confidence
+        each induces as a mask (top-max_N channels by activation)."""
+        if max_N is None:
+            max_N = 16 if C.IMG_SIZE >= 224 else C.SCORECAM_MAX_N
+        acts = self.feat_model.predict(x[None].astype("float32"), verbose=0)[0]
+        h, w, Ck = acts.shape
+        order = np.argsort(acts.reshape(-1, Ck).mean(0))[::-1][:max_N]
+        # build masked inputs: x * upsampled, min-max normalised channel map
+        masked, ups = [], []
+        for c in order:
+            m = cv2.resize(acts[:, :, c], (C.IMG_SIZE, C.IMG_SIZE))
+            lo, hi = m.min(), m.max()
+            mn = (m - lo) / (hi - lo) if hi > lo else m * 0.0
+            ups.append(mn)
+            masked.append(x * mn[:, :, None])
+        masked = np.stack(masked).astype("float32")
+        scores = model_probs(self.model, masked, batch_size)[:, pred_class]
+        wts = np.maximum(scores - scores.min(), 0.0)           # relu, baseline
+        cam = np.tensordot(wts, np.stack(ups), axes=(0, 0))    # (H,W)
+        cam = np.maximum(cam, 0.0)
+        return _norm(cam)
 
     def ig_map(self, x, pred_class, steps=C.IG_STEPS_FAITH, chunk=8):
         xt = tf.convert_to_tensor(x[None].astype("float32"))
