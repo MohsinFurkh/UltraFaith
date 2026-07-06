@@ -81,3 +81,17 @@ def load_keras3_weights(model, h5path):
         n_assigned += 1
     f.close()
     return n_assigned
+
+
+def load_weights_any(model, h5path):
+    """
+    Load weights whether the file is classic Keras-2 HDF5 (local checkpoints)
+    or the Keras-3 `.weights.h5` layout (Kaggle checkpoints).  Tries the native
+    loader first, falls back to the Keras-3 name/shape matcher.
+    """
+    try:
+        model.load_weights(h5path)
+        return "native"
+    except (ValueError, OSError):
+        load_keras3_weights(model, h5path)
+        return "keras3"

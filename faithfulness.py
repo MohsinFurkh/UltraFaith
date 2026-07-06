@@ -77,8 +77,14 @@ class Explainers:
         self.model = model
         self.last_conv = last_conv
         self.binary = model.output_shape[-1] == 1
-        self.gradcam = Gradcam(model, model_modifier=ReplaceToLinear(), clone=True)
-        self.scorecam = Scorecam(model, model_modifier=ReplaceToLinear(), clone=True)
+        # Share ONE linear-output clone for both CAM methods.  tf-keras-vis would
+        # otherwise clone the model twice (3x memory), which OOMs large backbones
+        # at 224 on a small GPU.  The original `model` keeps its sigmoid/softmax.
+        lin = tf.keras.models.clone_model(model)
+        lin.set_weights(model.get_weights())
+        lin.layers[-1].activation = tf.keras.activations.linear
+        self.gradcam = Gradcam(lin, model_modifier=None, clone=False)
+        self.scorecam = Scorecam(lin, model_modifier=None, clone=False)
         self.shap = shap.GradientExplainer(model, background)
 
     def _score(self, pred_class):
@@ -91,13 +97,17 @@ class Explainers:
                                   penultimate_layer=self.last_conv)[0])
 
     def scorecam_map(self, x, pred_class, batch_size):
-        for mN in (C.SCORECAM_MAX_N, 32, 16, None):
+        # A single fixed max_N (no fallback loop) avoids repeated tf.function
+        # retracing, which is pathologically slow at 224.  Use a small max_N at
+        # high resolution to bound memory and forward passes.
+        cand = (16,) if C.IMG_SIZE >= 224 else (C.SCORECAM_MAX_N, 32, 16)
+        for mN in cand:
             try:
                 m = self.scorecam(self._score(pred_class), x[None],
                                   penultimate_layer=self.last_conv,
                                   max_N=mN, batch_size=batch_size)[0]
                 return _norm(m)
-            except ValueError:
+            except (ValueError, tf.errors.ResourceExhaustedError):
                 continue
         return np.zeros((C.IMG_SIZE, C.IMG_SIZE), np.float32)
 
@@ -122,8 +132,10 @@ class Explainers:
         return _norm(tf.reduce_sum(tf.abs(ig), axis=-1).numpy())
 
     def shap_map(self, x, pred_class):
-        sv = self.shap.shap_values(x[None].astype("float32"),
-                                   nsamples=C.SHAP_SAMPLES)
+        # fewer Monte-Carlo samples at high resolution to bound the VRAM used by
+        # the gradient batch (the paper's protocol value is used at 128)
+        ns = 8 if C.IMG_SIZE >= 224 else C.SHAP_SAMPLES
+        sv = self.shap.shap_values(x[None].astype("float32"), nsamples=ns)
         if isinstance(sv, list):
             idx = int(pred_class) if len(sv) > int(pred_class) else 0
             vals = np.asarray(sv[idx])[0]
@@ -229,9 +241,11 @@ def run_config(modality, backbone, n_images=C.N_FAITH_IMAGES):
     n_images = min(n_images, len(X_test))
     sample = rng.choice(len(X_test), size=n_images, replace=False)
 
-    # SHAP background from the training set
+    # SHAP background from the training set (smaller at high resolution so the
+    # GradientExplainer's gradient batch fits in limited VRAM)
+    bg_n = 8 if C.IMG_SIZE >= 224 else 32
     bg_idx = rng.choice(len(cache["X_train"]),
-                        size=min(32, len(cache["X_train"])), replace=False)
+                        size=min(bg_n, len(cache["X_train"])), replace=False)
     background = cache["X_train"][bg_idx].astype("float32")
     exp = Explainers(model, last_conv, background)
 

@@ -161,7 +161,7 @@ SCORECAM_MAX_N = 128           # Score-CAM top activation channels
 ATTRIBUTION_METHODS = ["Grad-CAM", "Integrated Gradients", "SHAP", "Score-CAM"]
 # Number of test images used for the (compute-heavy) faithfulness sweep per
 # modality.  Paper uses the full test set; capped here for the local GPU.
-N_FAITH_IMAGES = 120
+N_FAITH_IMAGES = int(os.environ.get("UF_NFAITH", "120"))
 BOOTSTRAP_RESAMPLES = 1000     # paired bootstrap for CIs
 
 # --------------------------------------------------------------------------- #

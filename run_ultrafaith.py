@@ -41,8 +41,7 @@ def main():
     # ---- 1. fetal training --------------------------------------------------
     if not args.skip_fetal:
         need = [b for b in C.MODEL_NAMES
-                if not os.path.exists(os.path.join(
-                    C.MODELS_DIR, f"{b}_FETAL.weights.h5"))]
+                if not os.path.exists(C.weights_path(b, "_FETAL"))]
         if need:
             print("Training FETAL backbones:", need)
             train.train_fetal(need)
@@ -53,11 +52,10 @@ def main():
     if not args.skip_faith:
         for modality in C.MODALITY_NAMES:
             for backbone in C.MODEL_NAMES:
-                wp = os.path.join(
-                    C.MODELS_DIR,
-                    f"{backbone}{C.MODALITIES[modality]['weight_suffix']}.weights.h5")
+                wp = C.weights_path(backbone,
+                                    C.MODALITIES[modality]["weight_suffix"])
                 if not os.path.exists(wp):
-                    print(f"[skip] no weights for {modality}/{backbone}")
+                    print(f"[skip] no weights for {modality}/{backbone} ({wp})")
                     continue
                 rc = _run([sys.executable, os.path.join(C.PROJECT_DIR,
                           "faithfulness.py"), modality, backbone])
